@@ -266,18 +266,23 @@ class ODConv2d(nn.Module):
     def _forward_impl_common(self, x: Tensor) -> Tensor:
         # Multiplying channel attention (or filter attention) to weights and feature maps are equivalent,
         # while we observe that when using the latter method the models will run faster with less gpu memory cost.
+        B, C, H, W = x.shape
         channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
-        batch_size, in_planes, height, width = x.size()
-        x = x * channel_attention
-        x = x.contiguous().reshape(1, -1, height, width)
-        aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
-        aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
-            [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
-        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
-                          dilation=self.dilation, groups=self.groups * batch_size)
-        output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
-        output = output * filter_attention
-        return output
+        x = x * channel_attention  # (B, C, H, W)
+        K, Out, InG, kH, kW = self.weight.shape
+        aggregate_weight = self.weight.unsqueeze(0) * (spatial_attention * kernel_attention)
+        aggregate_weight = torch.sum(aggregate_weight, dim=1)
+        x_unf = F.unfold(x, kernel_size=self.kernel_size, dilation=self.dilation,
+                         padding=self.padding, stride=self.stride)  # (B, InG*kH*kW, H_out*W_out)
+        L = x_unf.shape[-1]
+        x_unf = x_unf.view(B, C, kH, kW, L)
+        out = torch.einsum('boijk, bijkl -> bol', aggregate_weight, x_unf)
+        H_out = (H + 2 * self.padding - self.dilation * (kH - 1) - 1) // self.stride + 1
+        W_out = (W + 2 * self.padding - self.dilation * (kW - 1) - 1) // self.stride + 1
+        out = out.view(B, Out, H_out, W_out)
+        out = out * filter_attention
+        return out
+
 
     def _forward_impl_pw1x(self, x: Tensor) -> Tensor:
         channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)

@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simple-crowdcounting"
+version = "0.1.0"
+description = "Crowd counting framework with local-first MLOps utilities."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "einops==0.8.0",
+  "ftfy==6.3.1",
+  "onnx==1.17.0",
+  "onnxruntime==1.19.2",
+  "onnxruntime-gpu==1.19.2",
+  "onnxsim==0.4.36",
+  "opencv-python==4.10.0.84",
+  "Pillow==11.1.0",
+  "PyYAML==6.0.2",
+  "regex==2024.11.6",
+  "setuptools==68.2.0",
+  "tensorboardX==2.6.2.2",
+  "timm==1.0.14",
+  "numpy",
+  "tqdm",
+  "scipy",
+  "torch",
+  "torchvision",
+  "torchaudio",
+  "dict-recursive-update",
+  "jinja2",
+  "mlflow",
+  "dvc",
+  "fastapi",
+  "uvicorn[standard]",
+  "python-multipart",
+  "prometheus-client",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+crowdcount-convert = "convert:main"
+crowdcount-train = "train:main"
+crowdcount-test = "test:main"
+crowdcount-infer = "inference:main"
+crowdcount-export = "export:main"
+crowdcount-density-cache = "generate_density_cache:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "models*", "losses*", "serving*", "src*"]
+

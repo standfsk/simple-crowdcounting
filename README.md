@@ -31,6 +31,16 @@ https://github.com/standfsk/crowd-counting-framework.git
 cd crowd-counting-framework
 ```
 ### 2. Install dependencies
+This repo supports `pyproject.toml`-based environment management.
+
+Option A) `uv` (recommended)
+```
+pip install uv
+uv venv
+uv pip install -e .
+```
+
+Option B) pip + requirements (legacy)
 ```
 pip install -r requirements.txt
 ```

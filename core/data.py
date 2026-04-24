@@ -1,4 +1,6 @@
 import os
+import json
+from pathlib import Path
 from typing import List
 from typing import Optional, Callable, Union, Tuple, Iterator
 
@@ -15,6 +17,72 @@ from torchvision.transforms import ToTensor, Normalize
 
 img_formats = ['bmp', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'dng', 'webp', 'mpo']
 vid_formats = ['mov', 'avi', 'mp4', 'mpg', 'mpeg', 'm4v', 'wmv', 'mkv']
+
+
+def _swap_path_segment(path: Path, *, src: str, dst: str) -> Path:
+    parts = list(path.parts)
+    idx = None
+    for i, part in enumerate(parts):
+        if part.lower() == src.lower():
+            idx = i
+    if idx is not None:
+        parts[idx] = dst
+        return Path(*parts)
+    return path
+
+
+def image_path_to_annotation_path(image_path: str, label_format: str) -> str:
+    p = Path(image_path)
+    if label_format == "npy":
+        return str(p.with_suffix(".npy"))
+    if label_format == "json":
+        ann = _swap_path_segment(p, src="images", dst="annotations")
+        return str(ann.with_suffix(".json"))
+    raise ValueError(f"Unsupported label_format: {label_format}")
+
+
+def _infer_label_format(image_paths: List[str]) -> str:
+    """
+    Decide dataset label format once and enforce it consistently.
+
+    Rules:
+      - If both JSON and NPY exist for a sample -> error.
+      - If neither exists for all samples -> error.
+      - Otherwise choose the first discovered format and require it for all.
+    """
+    chosen: Optional[str] = None
+    for image_path in image_paths:
+        npy_path = image_path_to_annotation_path(image_path, "npy")
+        json_path = image_path_to_annotation_path(image_path, "json")
+        has_npy = os.path.isfile(npy_path)
+        has_json = os.path.isfile(json_path)
+        if has_npy and has_json:
+            raise ValueError(f"Both .npy and .json annotations exist for {image_path}")
+        if has_npy or has_json:
+            chosen = "npy" if has_npy else "json"
+            break
+
+    if chosen is None:
+        raise FileNotFoundError("No annotation files found (expected either .npy or canonical .json).")
+
+    for image_path in image_paths:
+        ann_path = image_path_to_annotation_path(image_path, chosen)
+        if not os.path.isfile(ann_path):
+            raise FileNotFoundError(f"Missing {chosen} annotation for {image_path}: {ann_path}")
+
+    return chosen
+
+
+def load_points_from_json(annotation_path: str) -> np.ndarray:
+    with open(annotation_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict) or "points" not in payload:
+        raise ValueError(f"Invalid canonical annotation JSON (missing 'points'): {annotation_path}")
+    points = payload["points"]
+    if points is None:
+        return np.zeros((0, 2), dtype=np.float32)
+    arr = np.array(points, dtype=np.float32).reshape(-1, 2)
+    return arr
 
 
 def generate_density_map(
@@ -70,6 +138,7 @@ class DatasetWithLabels(Dataset):
     ) -> None:
         self.image_paths = self.get_image_paths(dataset_path)
         self.split = split
+        self.label_format = _infer_label_format(self.image_paths)
 
         self.to_tensor = ToTensor()
         self.normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -89,15 +158,18 @@ class DatasetWithLabels(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, List[Tensor], Tensor, List[str], List[np.ndarray]]:
         image_path = self.image_paths[idx]
-        label_path = image_path.replace(".jpg", ".npy")
+        label_path = image_path_to_annotation_path(image_path, self.label_format)
 
         image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
         # image = cv2.imread(image_path)
         original_image = image.copy()
         image = self.to_tensor(image)
 
-        with open(label_path, "rb") as f:
-            label = np.load(f)
+        if self.label_format == "npy":
+            with open(label_path, "rb") as f:
+                label = np.load(f)
+        else:
+            label = load_points_from_json(label_path)
 
         label = torch.from_numpy(label).float()
         if self.transforms is not None:

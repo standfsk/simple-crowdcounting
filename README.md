@@ -41,9 +41,37 @@ cd datasets
 python prepare.py
 ```
 
+## Standardized data pipeline (MLOps-friendly)
+This project supports converting any raw dataset format into a single canonical format:
+**Image + point annotations** stored as **one JSON per image**.
+
+Recommended layout:
+```
+data/raw/images
+data/raw/annotations
+data/processed/images
+data/processed/annotations  # JSON (1 per image)
+```
+
+Convert raw -> processed:
+```
+python convert.py --input data/raw --output data/processed --type txt
+```
+
+Create `datasets/train.txt`, `datasets/valid.txt`, `datasets/test.txt` pointing to processed images:
+```
+python datasets/prepare.py --root data/processed/images --out-dir datasets
+```
+
 ## Train
 ```
 python train.py --save-path train --network apgcc
+```
+
+## (Optional) MLflow tracking
+```
+python train.py --save-path exp1 --network apgcc --mlflow --mlflow-experiment crowdcounting
+mlflow ui --port 5000
 ```
 
 ## Test
@@ -55,6 +83,9 @@ python test.py --save-path test --network apgcc --checkpoint output/train/best.p
 ```
 python export.py --save-path apgcc.onnx --network apgcc --backbone vgg16_bn --checkpoint output/train/best.pt 
 ```
+
+## Serve (FastAPI + Docker)
+See `serving/README.md`.
 
 ## Acknowledgement
 This project builds upon the work of many researchers in the field of crowd counting.<br>

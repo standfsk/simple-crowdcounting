@@ -1,0 +1,29 @@
+stages:
+  convert:
+    cmd: python convert.py --input data/raw --output data/processed --type txt
+    deps:
+      - convert.py
+      - src/data
+      - data/raw
+    outs:
+      - data/processed
+
+  manifests:
+    cmd: python datasets/prepare.py --root data/processed/images --out-dir datasets
+    deps:
+      - datasets/prepare.py
+      - data/processed/images
+    outs:
+      - datasets/train.txt
+      - datasets/valid.txt
+      - datasets/test.txt
+
+  density_cache:
+    cmd: python generate_density_cache.py --processed data/processed --out data/cache/density_maps --sigma 4.0
+    deps:
+      - generate_density_cache.py
+      - src/data/density.py
+      - data/processed/annotations
+    outs:
+      - data/cache/density_maps
+

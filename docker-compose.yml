@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Choose your model.
+      SERVE_NETWORK: "apgcc"
+      SERVE_DEVICE: "cpu"
+      # Mount checkpoint into the container and point to it here.
+      SERVE_CHECKPOINT: "/models/best.pt"
+      SERVE_THRESHOLD: "0.5"
+      # Optional: resize input (e.g. "640x640" or "512")
+      # SERVE_INPUT_SIZE: "640x640"
+    volumes:
+      - ./output/train:/models:ro
+

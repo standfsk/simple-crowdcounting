@@ -1,0 +1,44 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Outputs
+output/
+*.onnx
+mlruns/
+mlflow.db
+
+# Data (recommended to manage via DVC or external storage)
+data/raw/**
+data/processed/**
+data/cache/**
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/cache/.gitkeep
+
+# Local datasets (can be large)
+datasets/**/train/*.jpg
+datasets/**/train/*.jpeg
+datasets/**/train/*.png
+datasets/**/val/*.jpg
+datasets/**/val/*.jpeg
+datasets/**/val/*.png
+datasets/**/valid/*.jpg
+datasets/**/valid/*.jpeg
+datasets/**/valid/*.png
+datasets/**/test/*.jpg
+datasets/**/test/*.jpeg
+datasets/**/test/*.png
+datasets/**/*.npy
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+*.dvc.lock
+
+# Local model registry (large artifacts)
+registry/**/model.pt
+registry/active/model.pt

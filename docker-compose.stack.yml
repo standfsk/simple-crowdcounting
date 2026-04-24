@@ -1,0 +1,60 @@
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: mlops/stack/Dockerfile.mlflow
+    ports:
+      - "5000:5000"
+    command:
+      [
+        "mlflow",
+        "server",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5000",
+        "--backend-store-uri",
+        "sqlite:////mlflow/mlflow.db",
+        "--default-artifact-root",
+        "/mlflow/mlruns"
+      ]
+    volumes:
+      - ./mlruns:/mlflow/mlruns
+      - ./mlflow.db:/mlflow/mlflow.db
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      SERVE_NETWORK: "apgcc"
+      SERVE_DEVICE: "cpu"
+      SERVE_CHECKPOINT: "/models/model.pt"
+      SERVE_THRESHOLD: "0.5"
+    volumes:
+      - ./registry/active:/models:ro
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./mlops/stack/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./mlops/stack/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./mlops/stack/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./mlops/stack/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
+    depends_on:
+      - prometheus

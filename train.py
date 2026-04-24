@@ -25,6 +25,23 @@ def main() -> None:
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--amp', action="store_true")
 
+    # Optional MLOps (MLflow)
+    parser.add_argument("--mlflow", action="store_true", help="Enable MLflow experiment tracking (optional).")
+    parser.add_argument("--mlflow-uri", type=str, default=None, help="MLflow tracking URI (optional).")
+    parser.add_argument(
+        "--mlflow-experiment",
+        type=str,
+        default="crowd-counting",
+        help="MLflow experiment name (optional).",
+    )
+    parser.add_argument("--mlflow-run-name", type=str, default=None, help="MLflow run name (optional).")
+    parser.add_argument(
+        "--mlflow-tags",
+        type=str,
+        default=None,
+        help='Extra MLflow tags as JSON string (e.g. \'{"stage":"dev"}\').',
+    )
+
     args = parser.parse_args()
 
     # Set up DDP
@@ -48,12 +65,42 @@ def main() -> None:
 def run(local_rank: int, nprocs: int, config: object) -> None:
     train_module = importlib.import_module(f'models.{config.network}.trainer')
 
+    # Optional MLflow run (rank 0 only).
+    try:
+        from core import mlops
+
+        # Map CLI args (mlflow-*) into the config attributes expected by core.mlops.
+        config.mlflow = getattr(config, "mlflow", False)
+        config.mlflow_uri = getattr(config, "mlflow_uri", None)
+        config.mlflow_experiment = getattr(config, "mlflow_experiment", "crowd-counting")
+        config.mlflow_run_name = getattr(config, "mlflow_run_name", None)
+        config.mlflow_tags = getattr(config, "mlflow_tags", None)
+
+        mlops.configure_from_config(config)
+        # Convert config params to a flat dict for MLflow params.
+        params = config.to_dict() if hasattr(config, "to_dict") else None
+        mlops.start_run(params=params)
+        cfg_path = os.path.join("configs", f"{config.network.lower()}.yml")
+        if os.path.isfile(cfg_path):
+            mlops.log_artifact(cfg_path, artifact_path="configs")
+    except Exception:
+        # Keep training runnable even without MLflow installed.
+        pass
+
     if nprocs > 1:
         print(f"Rank {local_rank} process among {nprocs} processes.")
         init_seeds(config.seed + local_rank)
         setup(local_rank, nprocs)
         print(f"Initialized successfully. Training with {nprocs} GPUs.")
-    train_module.run(local_rank, nprocs, config)
+    try:
+        train_module.run(local_rank, nprocs, config)
+    finally:
+        try:
+            from core import mlops
+
+            mlops.end_run()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

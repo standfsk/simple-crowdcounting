@@ -64,6 +64,14 @@ def update_train_result(epoch: int, loss_info: Dict[str, float], writer: Summary
     for k, v in loss_info.items():
         writer.add_scalar(f"train/{k}", v, epoch)
 
+    # Optional MLOps hook (MLflow).
+    try:
+        from core import mlops  # local import to keep MLflow optional
+
+        mlops.log_metrics(loss_info, step=epoch, prefix="train/")
+    except Exception:  # noqa: BLE001
+        pass
+
 
 def update_eval_result(
     epoch: int,
@@ -79,12 +87,27 @@ def update_eval_result(
         hist_scores[k] = v
         writer.add_scalar(f"val/{k}", v, epoch)
 
+    # Optional MLOps hook (MLflow).
+    try:
+        from core import mlops  # local import to keep MLflow optional
+
+        mlops.log_metrics(curr_scores, step=epoch, prefix="val/")
+    except Exception:  # noqa: BLE001
+        pass
+
     # save best score
     curr_score = curr_scores["mae"] + curr_scores["rmse"]
     best_score = best_scores["mae"] + best_scores["rmse"]
     if curr_score < best_score:
         best_scores = {k:v for k,v in curr_scores.items()}
-        torch.save(state_dict, os.path.join(ckpt_dir, f"best.pt"))
+        best_path = os.path.join(ckpt_dir, "best.pt")
+        torch.save(state_dict, best_path)
+        try:
+            from core import mlops  # local import to keep MLflow optional
+
+            mlops.log_artifact(best_path, artifact_path="checkpoints")
+        except Exception:  # noqa: BLE001
+            pass
 
     return hist_scores, best_scores
 

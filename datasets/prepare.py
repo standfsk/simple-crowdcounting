@@ -1,7 +1,9 @@
 import argparse
 import os
 from pathlib import Path
-from typing import Iterable, List
+from typing import List, Optional, Tuple
+
+import random
 
 
 def _collect_images(root: Path, split: str, exts: List[str]) -> List[Path]:
@@ -16,7 +18,41 @@ def _collect_images(root: Path, split: str, exts: List[str]) -> List[Path]:
     return out
 
 
-def mktxt(root: str, out_dir: str, exts: List[str]) -> None:
+def _split_train_valid(
+    train_paths: List[Path],
+    valid_ratio: float,
+    seed: int,
+) -> Tuple[List[Path], List[Path]]:
+    if valid_ratio <= 0 or not train_paths:
+        return train_paths, []
+
+    if not (0 < valid_ratio < 1):
+        raise ValueError(f"valid_ratio must be in (0, 1), got {valid_ratio}")
+
+    n = len(train_paths)
+    if n <= 1:
+        return train_paths, []
+
+    valid_count = int(round(n * valid_ratio))
+    valid_count = max(1, min(n - 1, valid_count))
+
+    idxs = list(range(n))
+    rng = random.Random(int(seed))
+    rng.shuffle(idxs)
+    valid_idxs = set(idxs[:valid_count])
+
+    new_train = [p for i, p in enumerate(train_paths) if i not in valid_idxs]
+    new_valid = [p for i, p in enumerate(train_paths) if i in valid_idxs]
+    return new_train, new_valid
+
+
+def mktxt(
+    root: str,
+    out_dir: str,
+    exts: List[str],
+    auto_valid_ratio: float = 0.0,
+    seed: int = 42,
+) -> None:
     root_p = Path(root)
     out_dir_p = Path(out_dir)
     out_dir_p.mkdir(parents=True, exist_ok=True)
@@ -30,6 +66,10 @@ def mktxt(root: str, out_dir: str, exts: List[str]) -> None:
     if not valid:
         valid = _collect_images(root_p, "val", exts_)
     test = _collect_images(root_p, "test", exts_)
+
+    # If no explicit valid split exists, optionally sample it from train.
+    if not valid and auto_valid_ratio > 0:
+        train, valid = _split_train_valid(train, auto_valid_ratio, seed)
 
     subsets = [("train", train), ("valid", valid), ("test", test)]
     for subset, image_paths in subsets:
@@ -54,9 +94,21 @@ def parse_args() -> argparse.Namespace:
         default=["jpg"],
         help="Image extensions to include (default: jpg).",
     )
+    p.add_argument(
+        "--auto-valid-ratio",
+        type=float,
+        default=0.0,
+        help="If no valid/val split exists, sample this fraction from train to create valid.txt (e.g. 0.1).",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed used for --auto-valid-ratio split (default: 42).",
+    )
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    mktxt(args.root, args.out_dir, args.exts)
+    mktxt(args.root, args.out_dir, args.exts, auto_valid_ratio=args.auto_valid_ratio, seed=args.seed)

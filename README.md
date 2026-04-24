@@ -73,6 +73,11 @@ Create `datasets/train.txt`, `datasets/valid.txt`, `datasets/test.txt` pointing 
 python datasets/prepare.py --root data/processed/images --out-dir datasets
 ```
 
+If you only have `train/` and `test/` splits (no `valid/`), auto-create `valid.txt` by sampling from train:
+```
+python datasets/prepare.py --root data/processed/images --out-dir datasets --auto-valid-ratio 0.1 --seed 42
+```
+
 ## Train
 ```
 python train.py --save-path train --network apgcc

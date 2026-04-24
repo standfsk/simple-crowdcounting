@@ -112,14 +112,19 @@ def generate_density_map(
 
 def collate_fn(
     batch: List[Tensor]
-) -> Tuple[Tensor, List[Tensor], Tensor, List[str], List[np.ndarray]]:
+) -> Tuple[Tensor, List[Tensor], Optional[Tensor], List[str], List[np.ndarray]]:
     batch = list(zip(*batch))
     images = batch[0]
     assert len(images[0].shape) == 4, f"images should be a 4D tensor, got {images[0].shape}."
     images = torch.cat(images, 0)
     points = batch[1]  # list of lists of tensors, flatten it
     points = [p for points_ in points for p in points_]
-    densities = torch.cat(batch[2], 0)
+
+    # densities can be disabled for point-based models
+    if all(d is None for d in batch[2]):
+        densities = None
+    else:
+        densities = torch.cat(batch[2], 0)
     data_paths = batch[3]  # list of lists of strings, flatten it
     data_paths = [path for path_ in data_paths for path in path_]
     original_images = batch[4]
@@ -135,6 +140,8 @@ class DatasetWithLabels(Dataset):
         transforms: Optional[Callable] = None,
         sigma: Optional[float] = None,
         num_crops: int = 1,
+        need_density: bool = True,
+        return_meta: bool = True,
     ) -> None:
         self.image_paths = self.get_image_paths(dataset_path)
         self.split = split
@@ -147,6 +154,8 @@ class DatasetWithLabels(Dataset):
         self.sigma = sigma
         self.num_crops = num_crops
         self.input_size = input_size
+        self.need_density = need_density
+        self.return_meta = return_meta
 
     def get_image_paths(self, dataset_path: str) -> List[str]:
         with open(dataset_path, "r") as f:
@@ -156,13 +165,12 @@ class DatasetWithLabels(Dataset):
     def __len__(self) -> int:
         return len(self.image_paths)
 
-    def __getitem__(self, idx: int) -> Tuple[Tensor, List[Tensor], Tensor, List[str], List[np.ndarray]]:
+    def __getitem__(self, idx: int) -> Tuple[Tensor, List[Tensor], Optional[Tensor], List[str], List[np.ndarray]]:
         image_path = self.image_paths[idx]
         label_path = image_path_to_annotation_path(image_path, self.label_format)
 
         image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-        # image = cv2.imread(image_path)
-        original_image = image.copy()
+        original_image = image.copy() if self.return_meta else None
         image = self.to_tensor(image)
 
         if self.label_format == "npy":
@@ -180,12 +188,21 @@ class DatasetWithLabels(Dataset):
             labels = [label.clone() for _ in range(self.num_crops)]
 
         images = [self.normalize(img) for img in images]
-        density_maps = torch.stack(
-            [generate_density_map(label, image.shape[-2], image.shape[-1], sigma=self.sigma) for image, label in
-             zip(images, labels)], 0)
 
-        data_paths = [image_path] * len(images)
-        original_images = [original_image] * len(images)
+        if self.need_density:
+            density_maps = torch.stack(
+                [generate_density_map(label, image.shape[-2], image.shape[-1], sigma=self.sigma) for image, label in zip(images, labels)],
+                0,
+            )
+        else:
+            density_maps = None
+
+        if self.return_meta:
+            data_paths = [image_path] * len(images)
+            original_images = [original_image] * len(images)  # type: ignore[list-item]
+        else:
+            data_paths = []
+            original_images = []
         images = torch.stack(images, 0)
         return images, labels, density_maps, data_paths, original_images
 
@@ -283,23 +300,41 @@ def get_dataloader(
 
     split = "valid" if split == "val" else split
 
+    # Point-based vs density-based models (avoid generating density maps when not needed)
+    density_based_networks = {"clip_ebc", "dmcount", "fusioncount", "ffnet", "steerer"}
+    need_density = getattr(config, "network", None) in density_based_networks
+
+    # Train/val do not need paths/original images (saves CPU+RAM), test keeps them for visualization.
+    return_meta = split == "test"
+
     dataset = DatasetWithLabels(
         dataset_path=os.path.join("./datasets", f"{split}.txt"),
         split=split,
         input_size=config.input_size,
         transforms=transforms,
         sigma=None,
-        num_crops=config.num_crops if split == "train" else 1
+        num_crops=config.num_crops if split == "train" else 1,
+        need_density=need_density,
+        return_meta=return_meta,
     )
+
+    num_workers = int(getattr(config, "num_workers", 0))
+    base_loader_kwargs = {
+        "num_workers": num_workers,
+        "pin_memory": True,
+        "collate_fn": collate_fn,
+    }
+    if num_workers > 0 and split == "train":
+        # Keep workers alive between epochs and prefetch a small number of batches.
+        base_loader_kwargs["persistent_workers"] = True
+        base_loader_kwargs["prefetch_factor"] = 2
     if ddp and split == "train":  # data_loader for training in DDP
         sampler = DistributedSampler(dataset)
         data_loader = DataLoader(
             dataset,
             batch_size=config.batch_size,
             sampler=sampler,
-            num_workers=config.num_workers,
-            pin_memory=True,
-            collate_fn=collate_fn,
+            **base_loader_kwargs,
         )
         return data_loader, sampler
 
@@ -308,9 +343,7 @@ def get_dataloader(
             dataset,
             batch_size=config.batch_size,
             shuffle=True,
-            num_workers=config.num_workers,
-            pin_memory=True,
-            collate_fn=collate_fn,
+            **base_loader_kwargs,
         )
         return data_loader, None
 
@@ -319,9 +352,7 @@ def get_dataloader(
             dataset,
             batch_size=1,  # Use batch size 1 for evaluation
             shuffle=False,
-            num_workers=config.num_workers,
-            pin_memory=True,
-            collate_fn=collate_fn,
+            **base_loader_kwargs,
         )
         return data_loader
 

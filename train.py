@@ -1,5 +1,4 @@
 import argparse
-import importlib
 import os
 
 import torch
@@ -63,7 +62,7 @@ def main() -> None:
 
 
 def run(local_rank: int, nprocs: int, config: object) -> None:
-    train_module = importlib.import_module(f'models.{config.network}.trainer')
+    from core import trainer as core_trainer
 
     # Optional MLflow run (rank 0 only).
     try:
@@ -93,7 +92,7 @@ def run(local_rank: int, nprocs: int, config: object) -> None:
         setup(local_rank, nprocs)
         print(f"Initialized successfully. Training with {nprocs} GPUs.")
     try:
-        train_module.run(local_rank, nprocs, config)
+        core_trainer.run(local_rank, nprocs, config)
     finally:
         try:
             from core import mlops

@@ -68,6 +68,12 @@ python datasets/prepare.py --root data/processed/images --out-dir datasets
 python train.py --save-path train --network apgcc
 ```
 
+## Performance notes
+- AMP: add `--amp` to `train.py` for faster training on GPU.
+- DDP workers: `--num-workers` is treated as **per-process** (do not divide by GPU count).
+- DDP metrics: training metrics (MAE/RMSE/precision/recall/F1/accuracy) are computed at **epoch end** by gathering counts to rank 0 (avoids per-batch GPU↔CPU sync).
+- Density maps: point-based models skip density-map generation in the dataloader to reduce CPU overhead.
+
 ## (Optional) MLflow tracking
 ```
 python train.py --save-path exp1 --network apgcc --mlflow --mlflow-experiment crowdcounting
@@ -76,7 +82,7 @@ mlflow ui --port 5000
 
 ## Test
 ```
-python test.py --save-path test --network apgcc --checkpoint output/train/best.pt --device 0 --save --log 
+python test.py --save-path test --network apgcc --checkpoint output/train/best.pt --device 0 --save
 ```
 
 ## Export
